@@ -16,9 +16,13 @@
 #                              approve pull requests"
 #
 # Security notes - keep these properties if you edit this file:
-#   * Feedback text is written by anonymous members of the public. It is only ever passed through
-#     env vars into a file and never interpolated with ${{ }} into a `run:` script (script injection),
+#   * Feedback text is written by anonymous members of the public. It is read from the event file
+#     straight into a file and never interpolated with ${{ }} into a `run:` script (script injection),
 #     and the agent is told to treat that file as untrusted data.
+#   * The callback token and the feedback are NOT declared under `env:`. GitHub prints every step's
+#     env block in the log before the step runs, so an `env:` value would appear in plain text
+#     before `::add-mask::` could hide it - in a public repository, to anyone. The token is read from
+#     $GITHUB_EVENT_PATH and masked before it is exported.
 #   * The agent gets file tools only - no shell, no network, no git push. Add narrowly scoped Bash
 #     entries (e.g. "Bash(npm test:*)") if you want it to run tests.
 #   * The PR is a draft and is never merged automatically.
@@ -45,14 +49,14 @@ jobs:
       RUN_ID: ${{ github.event.client_payload.runId }}
       BASE_BRANCH: ${{ github.event.client_payload.baseBranch }}
       CALLBACK_URL: ${{ github.event.client_payload.callbackUrl }}
-      CALLBACK_TOKEN: ${{ github.event.client_payload.callbackToken }}
-      FEEDBACK_JSON: ${{ toJSON(github.event.client_payload.feedback) }}
     steps:
       - name: Report running
         run: |
-          echo "::add-mask::$CALLBACK_TOKEN"
+          TOKEN=$(jq -r '.client_payload.callbackToken' "$GITHUB_EVENT_PATH")
+          echo "::add-mask::$TOKEN"
+          echo "CALLBACK_TOKEN=$TOKEN" >> "$GITHUB_ENV"
           curl -fsS -X POST "$CALLBACK_URL" \
-            -H "Content-Type: application/json" -H "X-Ai-Fix-Token: $CALLBACK_TOKEN" \
+            -H "Content-Type: application/json" -H "X-Ai-Fix-Token: $TOKEN" \
             -d '{"status":"RUNNING"}'
 
       - uses: actions/checkout@v4
@@ -60,7 +64,7 @@ jobs:
           ref: ${{ github.event.client_payload.baseBranch }}
 
       - name: Write feedback to a file outside the repository
-        run: printf '%s' "$FEEDBACK_JSON" > "$RUNNER_TEMP/feedback.json"
+        run: jq '.client_payload.feedback' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/feedback.json"
 
       - name: Let the agent draft a fix
         env:
