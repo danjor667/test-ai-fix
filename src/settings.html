@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Account settings</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <h1>Account settings</h1>
+    <form id="settings-form">
+      <label for="display-name">Display name</label>
+      <input id="display-name" name="displayName" type="text">
+      <button id="save-button" type="submit">Save</button>
+      <span id="spinner" hidden>Saving…</span>
+    </form>
+    <p>Current name: <strong id="current-name"></strong></p>
+  </main>
+  <script src="settings.js"></script>
+</body>
+</html>
