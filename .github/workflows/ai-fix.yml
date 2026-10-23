@@ -13,6 +13,9 @@
 #   AI_FIX_MODEL        gateway model name for the agent  (default anthropic/claude-opus-5)
 #   AI_FIX_SMALL_MODEL  gateway model name Claude Code uses for background requests
 #                       (defaults to AI_FIX_MODEL; set a cheaper model the gateway serves)
+#   AI_FIX_RUNNER       runner label (default ubuntu-latest). The gateway only accepts connections
+#                       from allowed networks, and GitHub-hosted runners are not among them, so in
+#                       practice this must name a self-hosted runner inside an allowed network.
 # Required repository setting: Settings > Actions > General > "Allow GitHub Actions to create and
 #                              approve pull requests"
 #
@@ -44,7 +47,7 @@ concurrency:
 
 jobs:
   draft-fix:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.AI_FIX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 60
     env:
       RUN_ID: ${{ github.event.client_payload.runId }}
@@ -81,6 +84,12 @@ jobs:
         run: |
           if [ -z "$ANTHROPIC_BASE_URL" ]; then
             echo "::error::Repository variable AI_GATEWAY_URL is not set"
+            exit 1
+          fi
+          # Fail in seconds rather than letting Claude Code retry an unreachable gateway for ~30
+          # minutes. Any HTTP answer (even 401) means the gateway is reachable.
+          if ! curl -sS -m 15 -o /dev/null "$ANTHROPIC_BASE_URL/v1/models"; then
+            echo "::error::Cannot reach the AI gateway at $ANTHROPIC_BASE_URL from this runner. It only accepts allowed networks; use a self-hosted runner (AI_FIX_RUNNER) inside one."
             exit 1
           fi
           npm install -g @anthropic-ai/claude-code
