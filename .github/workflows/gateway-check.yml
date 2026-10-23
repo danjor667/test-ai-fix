@@ -1,0 +1,16 @@
+name: Gateway connectivity check
+
+on: workflow_dispatch
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runner public IP
+        run: curl -s -m 10 https://api.ipify.org; echo
+      - name: Reach the gateway
+        env:
+          GATEWAY: ${{ vars.AI_GATEWAY_URL }}
+        run: |
+          getent hosts "${GATEWAY#https://}" || true
+          curl -sS -m 20 -o /dev/null -w "HTTP %{http_code} from %{remote_ip}\n" "$GATEWAY/v1/models" || echo "curl exit $?"
