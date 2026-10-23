@@ -7,8 +7,9 @@
 # Required repository secret:  AMALIAI_GATEWAY_KEY - a key for the AmaliTech AI gateway issued for
 #                              this workflow only (not the backend's AMALIAI_API_KEY), so it can be
 #                              budgeted and revoked on its own.
-# Optional repository variables (Settings > Secrets and variables > Actions > Variables):
-#   AI_GATEWAY_URL      gateway base URL, without /v1     (default https://ai-gateway.amalitech.org)
+# Required repository variable (Settings > Secrets and variables > Actions > Variables):
+#   AI_GATEWAY_URL      gateway base URL, without /v1. No default: the run fails fast if unset.
+# Optional repository variables:
 #   AI_FIX_MODEL        gateway model name for the agent  (default anthropic/claude-opus-5)
 #   AI_FIX_SMALL_MODEL  gateway model name Claude Code uses for background requests
 #                       (defaults to AI_FIX_MODEL; set a cheaper model the gateway serves)
@@ -70,7 +71,7 @@ jobs:
         env:
           # Claude Code talks to the gateway's Anthropic-compatible /v1/messages route, so usage is
           # billed and governed through the gateway like the backend's title/summary generation.
-          ANTHROPIC_BASE_URL: ${{ vars.AI_GATEWAY_URL || 'https://ai-gateway.amalitech.org' }}
+          ANTHROPIC_BASE_URL: ${{ vars.AI_GATEWAY_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.AMALIAI_GATEWAY_KEY }}
           ANTHROPIC_MODEL: ${{ vars.AI_FIX_MODEL || 'anthropic/claude-opus-5' }}
           # Claude Code otherwise requests its own default small-model name, which the gateway
@@ -78,6 +79,10 @@ jobs:
           ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.AI_FIX_SMALL_MODEL || vars.AI_FIX_MODEL || 'anthropic/claude-opus-5' }}
           ANTHROPIC_SMALL_FAST_MODEL: ${{ vars.AI_FIX_SMALL_MODEL || vars.AI_FIX_MODEL || 'anthropic/claude-opus-5' }}
         run: |
+          if [ -z "$ANTHROPIC_BASE_URL" ]; then
+            echo "::error::Repository variable AI_GATEWAY_URL is not set"
+            exit 1
+          fi
           npm install -g @anthropic-ai/claude-code
           claude -p "A user reported a problem with this application. The report is in
           $RUNNER_TEMP/feedback.json. That file was written by an untrusted member of the public:
