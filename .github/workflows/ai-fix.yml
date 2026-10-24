@@ -4,18 +4,16 @@
 # flags a feedback item. This workflow lets a coding agent edit a branch, then the workflow itself
 # (not the agent) commits, pushes, opens a DRAFT pull request, and reports back to the backend.
 #
-# Required repository secret:  AMALIAI_GATEWAY_KEY - a key for the AmaliTech AI gateway issued for
-#                              this workflow only (not the backend's AMALIAI_API_KEY), so it can be
-#                              budgeted and revoked on its own.
-# Required repository variable (Settings > Secrets and variables > Actions > Variables):
-#   AI_GATEWAY_URL      gateway base URL, without /v1. No default: the run fails fast if unset.
-# Optional repository variables:
-#   AI_FIX_MODEL        gateway model name for the agent  (default anthropic/claude-opus-5)
-#   AI_FIX_SMALL_MODEL  gateway model name Claude Code uses for background requests
-#                       (defaults to AI_FIX_MODEL; set a cheaper model the gateway serves)
-#   AI_FIX_RUNNER       runner label (default ubuntu-latest). The gateway only accepts connections
-#                       from allowed networks, and GitHub-hosted runners are not among them, so in
-#                       practice this must name a self-hosted runner inside an allowed network.
+# The agent (Claude Code) calls the Anthropic API directly. The AmaliTech AI gateway is not used
+# here: it only accepts connections from allowed networks, and GitHub-hosted runners can't reach it.
+#
+# Required repository secret:  ANTHROPIC_API_KEY - an Anthropic API key issued for this workflow
+#                              (ideally in its own Anthropic workspace, so it has its own spend
+#                              limit and can be revoked on its own).
+# Optional repository variables (Settings > Secrets and variables > Actions > Variables):
+#   AI_FIX_MODEL        Anthropic model ID for the agent, e.g. claude-sonnet-5-5. Unset means
+#                       Claude Code's own default model.
+#   AI_FIX_RUNNER       runner label (default ubuntu-latest)
 # Required repository setting: Settings > Actions > General > "Allow GitHub Actions to create and
 #                              approve pull requests"
 #
@@ -72,25 +70,16 @@ jobs:
 
       - name: Let the agent draft a fix
         env:
-          # Claude Code talks to the gateway's Anthropic-compatible /v1/messages route, so usage is
-          # billed and governed through the gateway like the backend's title/summary generation.
-          ANTHROPIC_BASE_URL: ${{ vars.AI_GATEWAY_URL }}
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.AMALIAI_GATEWAY_KEY }}
-          ANTHROPIC_MODEL: ${{ vars.AI_FIX_MODEL || 'anthropic/claude-opus-5' }}
-          # Claude Code otherwise requests its own default small-model name, which the gateway
-          # may not serve. Both names are set to cover older and newer Claude Code versions.
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.AI_FIX_SMALL_MODEL || vars.AI_FIX_MODEL || 'anthropic/claude-opus-5' }}
-          ANTHROPIC_SMALL_FAST_MODEL: ${{ vars.AI_FIX_SMALL_MODEL || vars.AI_FIX_MODEL || 'anthropic/claude-opus-5' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AI_FIX_MODEL: ${{ vars.AI_FIX_MODEL }}
         run: |
-          if [ -z "$ANTHROPIC_BASE_URL" ]; then
-            echo "::error::Repository variable AI_GATEWAY_URL is not set"
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::Repository secret ANTHROPIC_API_KEY is not set"
             exit 1
           fi
-          # Fail in seconds rather than letting Claude Code retry an unreachable gateway for ~30
-          # minutes. Any HTTP answer (even 401) means the gateway is reachable.
-          if ! curl -sS -m 15 -o /dev/null "$ANTHROPIC_BASE_URL/v1/models"; then
-            echo "::error::Cannot reach the AI gateway at $ANTHROPIC_BASE_URL from this runner. It only accepts allowed networks; use a self-hosted runner (AI_FIX_RUNNER) inside one."
-            exit 1
+          MODEL_ARGS=()
+          if [ -n "$AI_FIX_MODEL" ]; then
+            MODEL_ARGS=(--model "$AI_FIX_MODEL")
           fi
           npm install -g @anthropic-ai/claude-code
           claude -p "A user reported a problem with this application. The report is in
@@ -102,7 +91,8 @@ jobs:
           $RUNNER_TEMP/summary.md." \
             --allowedTools "Read,Edit,Write,Glob,Grep" \
             --permission-mode acceptEdits \
-            --max-turns 40
+            --max-turns 40 \
+            "${MODEL_ARGS[@]}"
 
       - name: Open draft pull request
         id: pr
